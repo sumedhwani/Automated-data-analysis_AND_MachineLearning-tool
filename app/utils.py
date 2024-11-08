@@ -1,9 +1,11 @@
 import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
 from pandas_profiling import ProfileReport
 import sweetviz as sv
 import os
-import matplotlib.pyplot as plt
-import seaborn as sns
+import scipy.stats as stats
+
 
 def load_file(file):
     try:
@@ -102,3 +104,81 @@ def clean_data(data):
         data_cleaned[col] = data_cleaned[col].astype('category')
 
     return data_cleaned
+
+def generate_eda_report(data, output_path='reports', report_type='pandas_profiling'):
+    """
+    Generate an EDA report for the dataset, with basic plots, distribution detection,
+    summary statistics, and an optional automated report.
+    Saves the report and returns the file paths of generated plots and reports.
+    """
+    os.makedirs(output_path, exist_ok=True)  # Ensure the output directory exists
+    
+    # List to store plot paths for displaying in the Flask app
+    plot_files = []
+
+    # 1. Summary Statistics
+    summary_file = f"{output_path}/summary_statistics.csv"
+    data.describe(include='all').to_csv(summary_file)
+    plot_files.append(summary_file)
+
+    # 2. Distribution of Each Numeric Feature
+    for col in data.select_dtypes(include=['float64', 'int64']).columns:
+        plt.figure(figsize=(8, 4))
+        sns.histplot(data[col], kde=True, color='skyblue')
+        plt.title(f'Distribution of {col}')
+        hist_path = f"{output_path}/{col}_histogram.png"
+        plt.savefig(hist_path)
+        plt.close()
+        plot_files.append(hist_path)
+
+    # 3. Correlation Heatmap
+    plt.figure(figsize=(10, 8))
+    correlation_matrix = data.corr()
+    sns.heatmap(correlation_matrix, annot=True, cmap='viridis', fmt=".2f", linewidths=0.5)
+    plt.title("Correlation Heatmap")
+    heatmap_path = f"{output_path}/correlation_heatmap.png"
+    plt.savefig(heatmap_path)
+    plt.close()
+    plot_files.append(heatmap_path)
+
+    # 4. Distribution Detection (Normality Test)
+    distribution_results = {}
+    for col in data.select_dtypes(include=['float64', 'int64']).columns:
+        stat, p_value = stats.shapiro(data[col].dropna())  # Shapiro-Wilk test for normality
+        distribution_results[col] = {
+            "Shapiro-Wilk Test Statistic": stat,
+            "p-value": p_value,
+            "Normal Distribution": p_value > 0.05  # True if data is normally distributed
+        }
+    distribution_df = pd.DataFrame(distribution_results).T
+    distribution_file = f"{output_path}/distribution_results.csv"
+    distribution_df.to_csv(distribution_file)
+    plot_files.append(distribution_file)
+
+    # 5. Categorical Feature Summaries
+    for col in data.select_dtypes(include=['category', 'object']).columns:
+        plt.figure(figsize=(8, 4))
+        sns.countplot(data[col], palette="viridis")
+        plt.title(f"Count of Categories in {col}")
+        plt.xticks(rotation=45)
+        countplot_path = f"{output_path}/{col}_countplot.png"
+        plt.savefig(countplot_path)
+        plt.close()
+        plot_files.append(countplot_path)
+
+    # 6. Automated EDA Report (optional)
+    report_file = None
+    if report_type == 'pandas_profiling':
+        profile = ProfileReport(data, title="Automated EDA Report", explorative=True)
+        report_file = f"{output_path}/pandas_profiling_report.html"
+        profile.to_file(report_file)
+    elif report_type == 'sweetviz':
+        report = sv.analyze(data)
+        report_file = f"{output_path}/sweetviz_report.html"
+        report.show_html(report_file)
+
+    # Add report file to the list if generated
+    if report_file:
+        plot_files.append(report_file)
+
+    return plot_files
